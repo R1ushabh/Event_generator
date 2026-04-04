@@ -22,6 +22,10 @@ app.get("/api/health", (_req, res) => {
     ok: true,
     service: config.appName,
     date: new Date().toISOString(),
+    groqConfigured: Boolean(config.groqApiKey),
+    groqModel: config.groqModel || null,
+    geminiConfigured: Boolean(config.geminiApiKey),
+    openaiConfigured: Boolean(config.openaiApiKey),
   });
 });
 
