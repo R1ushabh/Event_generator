@@ -1,82 +1,23 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "../config.js";
 
 const FLYER_WIDTH = 1024;
 const FLYER_HEIGHT = 1536;
-const GEMINI_IMAGE_MODELS = [
-  "gemini-2.0-flash-preview-image-generation",
-  "gemini-2.0-flash-exp-image-generation",
+const POLLINATIONS_IMAGE_ENDPOINTS = [
+  {
+    label: "gen",
+    baseUrl: "https://gen.pollinations.ai/image",
+  },
+  {
+    label: "legacy",
+    baseUrl: "https://image.pollinations.ai/prompt",
+  },
 ];
-const GEMINI_TEXT_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash"];
-
-const toModelId = (name) => name.replace(/^models\//, "");
-
-const listAvailableGeminiModels = async (apiKey) => {
-  if (!apiKey) {
-    return [];
-  }
-
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
-    if (!response.ok) {
-      return [];
-    }
-
-    const data = await response.json();
-    const models = Array.isArray(data?.models) ? data.models : [];
-    return models
-      .filter((model) => Array.isArray(model?.supportedGenerationMethods) && model.supportedGenerationMethods.includes("generateContent"))
-      .map((model) => toModelId(String(model.name || "")))
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-};
-
-const resolveModelCandidates = (preferredModels, availableModels, options = {}) => {
-  const { strictWhenAvailable = false } = options;
-
-  if (!availableModels.length) {
-    return preferredModels;
-  }
-
-  const preferredSet = new Set(preferredModels);
-  const matched = availableModels.filter((model) => preferredSet.has(model));
-
-  if (matched.length) {
-    return matched;
-  }
-
-  return strictWhenAvailable ? [] : preferredModels;
-};
-
-const isQuotaError = (message) => {
-  const normalized = String(message || "").toLowerCase();
-  return (
-    normalized.includes("quota exceeded") ||
-    normalized.includes("too many requests") ||
-    normalized.includes("limit: 0") ||
-    normalized.includes("429")
-  );
-};
-
-const buildGeminiFailureMessage = ({ wantsFullFlyer, imageError, textError, imageModelsTried, availableModels }) => {
-  if (isQuotaError(imageError) || isQuotaError(textError)) {
-    return wantsFullFlyer
-      ? "Gemini full flyer cannot be generated right now because your API key has no available quota (limit: 0 / 429). Use Generate Poster with local backgrounds, or enable quota in Google AI Studio."
-      : "Gemini background cannot be generated right now because your API key has no available quota (limit: 0 / 429). Use Generate Poster with local backgrounds, or enable quota in Google AI Studio.";
-  }
-
-  if (imageModelsTried.length === 0 && availableModels.length > 0) {
-    return wantsFullFlyer
-      ? "Your Gemini key does not currently have access to image-generation models. Only text models are available for this project/key."
-      : "Your Gemini key does not currently have access to image-generation models. Only text models are available for this project/key.";
-  }
-
-  return wantsFullFlyer
-    ? `Gemini full flyer generation failed. ${imageError || "No image-capable model returned output."}`
-    : `Gemini image generation failed. ${imageError || "No image-capable model returned output."}`;
-};
+const POLLINATIONS_PRIMARY_MODEL = config.pollinationsModel || "flux";
+const POLLINATIONS_FALLBACK_MODELS = ["flux"];
+const POLLINATIONS_MODEL_CANDIDATES = Array.from(
+  new Set([POLLINATIONS_PRIMARY_MODEL, ...POLLINATIONS_FALLBACK_MODELS].filter(Boolean))
+);
+const POLLINATIONS_MAX_ATTEMPTS = 3;
 
 export const themes = [
   "Technical",
@@ -108,127 +49,233 @@ const styleKeywords = {
   "Minimal Modern": "minimal modern aesthetic, clean white space, balanced composition, subtle gradients",
   Glassmorphism: "glassmorphism layers, translucent panels, soft blur depth, polished contemporary look",
   Corporate: "corporate clean design, disciplined typography space, professional blue-white palette",
+  "Retro & Vintage": "retro poster style, warm vintage tones, subtle paper texture, timeless editorial composition",
+  "Geometric & Abstract": "bold geometric shapes, abstract forms, clean vector-like composition, structured visual rhythm",
+  "Futuristic & Technical": "futuristic technical interface vibe, sleek neon accents, precise digital geometry, high-tech environment",
+  "Bold Editorial": "high-impact editorial layout, strong contrast blocks, modern magazine-inspired art direction",
+  "Neon Cyber": "cyberpunk neon palette, luminous gradients, moody futuristic energy, digital nightlife atmosphere",
 };
+
+const normalizePromptField = (value, maxLength = 220) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 
 export const buildFlyerPrompt = (payload) => {
   const theme = themes.includes(payload.theme) ? payload.theme : themes[0];
   const style = payload.style || "Minimal Modern";
+  const collegeName = normalizePromptField(payload.collegeName || "Pillai College of Engineering", 120);
+  const eventTitle = normalizePromptField(payload.eventTitle || "College event");
+  const clubName = normalizePromptField(payload.clubName || "Student club", 120);
+  const venue = normalizePromptField(payload.venue || "College campus", 120);
+  const collegeLogoPath = normalizePromptField(payload.collegeLogoPath || "", 180);
+  const clubLogoPath = normalizePromptField(payload.clubLogoPath || "", 180);
 
   return `
 Vertical event flyer background for a college event poster.
 Theme: ${theme}.
 Style direction: ${style}.
+Event focus: ${eventTitle} by ${clubName} at ${venue} in ${collegeName}.
 ${themeKeywords[theme] || ""}.
 ${styleKeywords[style] || ""}.
+Keep a clean header strip and reserve top-left and top-right circular logo safe zones for official college and club logos.
+Brand assets to accommodate in composition: ${collegeLogoPath || "college logo"} and ${clubLogoPath || "club logo"}.
+Keep the center area visually rich but not cluttered so title and details overlay remain highly readable.
+Visual cues to include: programming workshop vibe, laptop setup, coding symbols, collaborative student environment.
 Bright, high-key lighting with rich visual depth.
 Keep center and top-middle areas readable for headline text overlays.
-Use cinematic composition, premium quality, and sharp details.
-No text, no letters, no typography, no logos, no watermark.
+Use cinematic composition, premium quality, sharp details, and print-ready composition.
+No text, no letters, no typography, no numbers, no logos, no watermark, no random characters, no gibberish.
+No signs, no posters, no banners, no UI text, no readable code on laptop screens.
+If monitors are present, keep screen content abstract and blurred without any characters.
 `.trim();
 };
 
-const buildCompleteFlyerPrompt = (payload) => {
+const buildFullFlyerPrompt = (payload) => {
   const theme = themes.includes(payload.theme) ? payload.theme : themes[0];
   const style = payload.style || "Minimal Modern";
-  const details = String(payload.details || "").trim() || "No extra details provided.";
-  const summary = String(payload.summary || "").trim() || "";
-  const contactLine = Array.isArray(payload.contactNumbers)
-    ? payload.contactNumbers.filter(Boolean).join(" | ")
-    : String(payload.contactNumbers || "").trim();
+  const collegeName = normalizePromptField(payload.collegeName || "Pillai College of Engineering", 120);
+  const clubName = normalizePromptField(payload.clubName || "Club Name", 120);
+  const eventTitle = normalizePromptField(payload.eventTitle || "Event Title", 140);
+  const date = normalizePromptField(payload.date || "Not specified", 80);
+  const time = normalizePromptField(payload.time || "Not specified", 80);
+  const venue = normalizePromptField(payload.venue || "Not specified", 120);
+  const details = normalizePromptField(payload.details || "Not specified", 300);
+  const summary = normalizePromptField(payload.summary || "Not specified", 220);
+  const contact = normalizePromptField(payload.contactNumbers || "Not specified", 120);
 
   return `
-Generate a complete, print-ready vertical event flyer poster image for a college event.
+Generate a single complete vertical college flyer with clean, readable English typography.
 Theme: ${theme}.
-Style direction: ${style}.
+Style: ${style}.
 ${themeKeywords[theme] || ""}.
 ${styleKeywords[style] || ""}.
 
-Required text content to include clearly and correctly:
-College Name: ${payload.collegeName || "Pillai College of Engineering"}
-Club Name: ${payload.clubName || "Club Name"}
-Event Title: ${payload.eventTitle || "Event Title"}
-Date: ${payload.date || "Not specified"}
-Time: ${payload.time || "Not specified"}
-Venue: ${payload.venue || "Not specified"}
-Details: ${details}
-Summary: ${summary || "Not specified"}
-Contact: ${contactLine || "Not specified"}
+Required layout order:
+1) Top-center: ${collegeName}
+2) Immediately below: ${clubName}
+3) Main headline in very large font (once only): ${eventTitle}
+4) Mid section heading: Event Details
+5) Mid section body text:
+${details}
+${summary}
+6) Near bottom line: Date & Time: ${date} ${time} | Venue: ${venue}
+7) Bottom line: Contact: ${contact}
 
-Design constraints:
-- high contrast readable typography
-- balanced spacing and modern visual hierarchy
-- no gibberish text, no random letters
-- premium polished college event poster look
-- final output should be a single complete flyer image
+Design requirements:
+- High contrast typography on clean background
+- Strong visual hierarchy and ample spacing
+- Use only the exact event text above; do not invent, repeat, or paraphrase major headings
+- Do not repeat the title multiple times
+- No logos, no emblems, no badges, no watermarks
+- No gibberish, no random symbols, no mirrored text
+- Print-ready poster quality
 `.trim();
 };
 
-const getGeminiImage = async (prompt, mode = "background", availableModels = []) => {
-  if (!config.geminiApiKey) {
-    throw new Error("GEMINI_API_KEY is not configured.");
-  }
-
-  const client = new GoogleGenerativeAI(config.geminiApiKey);
-  const instruction =
-    mode === "full-flyer"
-      ? "Generate the full finished flyer exactly with readable text."
-      : "Generate only the background image. Do not include any text or logo in the image.";
-
-  const requestPayload = [
-    {
-      text: `${prompt}\n\n${instruction}`,
-    },
-  ];
-
-  const modelErrors = [];
-  const imageModelCandidates = resolveModelCandidates(GEMINI_IMAGE_MODELS, availableModels, {
-    strictWhenAvailable: true,
+const buildPollinationsUrl = (baseUrl, prompt, seed, model) => {
+  const params = new URLSearchParams({
+    model,
+    width: String(FLYER_WIDTH),
+    height: String(FLYER_HEIGHT),
+    nologo: "true",
+    enhance: "true",
+    private: "true",
+    seed: String(seed),
   });
 
-  if (!imageModelCandidates.length) {
-    throw new Error("No supported Gemini image-generation model is available for this key/project.");
+  if (config.pollinationsApiKey) {
+    params.set("key", config.pollinationsApiKey);
   }
 
-  for (const modelName of imageModelCandidates) {
-    try {
-      const imageModel = client.getGenerativeModel({
-        model: modelName,
-        generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"],
-        },
-      });
+  return `${baseUrl}/${encodeURIComponent(prompt)}?${params.toString()}`;
+};
 
-      const result = await imageModel.generateContent(requestPayload);
-      const parts = result.response?.candidates?.[0]?.content?.parts || [];
-      const imagePart = parts.find((part) => part?.inlineData?.data);
+const wait = (ms) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 
-      if (!imagePart?.inlineData?.data) {
-        modelErrors.push(`${modelName}: no image data returned`);
-        continue;
+const compactErrorText = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 280);
+
+const shouldRetryPollinations = (status, errorText) => {
+  const normalized = String(errorText || "").toLowerCase();
+
+  return (
+    [408, 429, 500, 502, 503, 504].includes(status) ||
+    normalized.includes("queue full") ||
+    normalized.includes("overloaded") ||
+    normalized.includes("timeout")
+  );
+};
+
+const isInsufficientBalanceError = (status, errorText) => {
+  const normalized = String(errorText || "").toLowerCase();
+  return status === 402 && normalized.includes("insufficient balance");
+};
+
+const getPollinationsImage = async (prompt, seed) => {
+  const errors = [];
+  const insufficientBalanceModels = new Set();
+
+  for (const model of POLLINATIONS_MODEL_CANDIDATES) {
+    let modelBlockedByBalance = false;
+
+    for (const endpoint of POLLINATIONS_IMAGE_ENDPOINTS) {
+      for (let attempt = 1; attempt <= POLLINATIONS_MAX_ATTEMPTS; attempt += 1) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45_000);
+
+        try {
+          const response = await fetch(buildPollinationsUrl(endpoint.baseUrl, prompt, seed, model), {
+            headers: {
+              Accept: "image/*",
+              ...(config.pollinationsApiKey
+                ? {
+                    Authorization: `Bearer ${config.pollinationsApiKey}`,
+                  }
+                : {}),
+            },
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            const contentType = response.headers.get("content-type") || "image/jpeg";
+            if (!contentType.startsWith("image/")) {
+              const payloadText = compactErrorText(await response.text().catch(() => ""));
+              throw new Error(`Pollinations did not return an image. ${payloadText}`.trim());
+            }
+
+            const bytes = await response.arrayBuffer();
+            const imageBase64 = Buffer.from(bytes).toString("base64");
+            return { contentType, imageBase64, modelUsed: model };
+          }
+
+          const errorText = compactErrorText(await response.text().catch(() => ""));
+          errors.push(`${model} ${endpoint.label} attempt ${attempt}: ${response.status} ${errorText}`.trim());
+
+          if (isInsufficientBalanceError(response.status, errorText)) {
+            insufficientBalanceModels.add(model);
+            modelBlockedByBalance = true;
+            break;
+          }
+
+          if (response.status === 401 && !config.pollinationsApiKey) {
+            break;
+          }
+
+          if (shouldRetryPollinations(response.status, errorText) && attempt < POLLINATIONS_MAX_ATTEMPTS) {
+            await wait(700 * attempt + Math.floor(Math.random() * 350));
+            continue;
+          }
+
+          break;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          const message = compactErrorText(error instanceof Error ? error.message : "Request failed");
+          errors.push(`${model} ${endpoint.label} attempt ${attempt}: ${message}`);
+
+          if (attempt < POLLINATIONS_MAX_ATTEMPTS) {
+            await wait(700 * attempt + Math.floor(Math.random() * 350));
+            continue;
+          }
+
+          break;
+        }
       }
 
-      return {
-        contentType: imagePart.inlineData.mimeType || "image/png",
-        imageBase64: imagePart.inlineData.data,
-      };
-    } catch (error) {
-      modelErrors.push(`${modelName}: ${error instanceof Error ? error.message : "request failed"}`);
+      if (modelBlockedByBalance) {
+        break;
+      }
     }
   }
 
+  if (insufficientBalanceModels.size === POLLINATIONS_MODEL_CANDIDATES.length) {
+    throw new Error(
+      `Insufficient Pollinations balance for configured model candidates (${POLLINATIONS_MODEL_CANDIDATES.join(", "
+      )}). Top up pollen or switch to a lower-cost model.`
+    );
+  }
+
+  const keyHint = config.pollinationsApiKey
+    ? ""
+    : " Add POLLINATIONS_API_KEY from https://enter.pollinations.ai for better reliability and higher capacity.";
+
   throw new Error(
-    modelErrors.length
-      ? modelErrors.join(" | ")
-      : "Gemini image generation failed on all configured image models."
+    `Pollinations request failed after retries.${keyHint} ${errors.slice(-4).join(" | ")}`.trim()
   );
 };
 
 export const generateFlyerConcept = async (payload) => {
   const wantsFullFlyer = payload.aiMode === "full-flyer" || payload.generateFullFlyer === true;
-  const prompt = wantsFullFlyer ? buildCompleteFlyerPrompt(payload) : buildFlyerPrompt(payload);
-  const availableModels = await listAvailableGeminiModels(config.geminiApiKey);
-  let geminiImageErrorMessage = "";
-  let imageModelsTried = [];
+  const prompt = wantsFullFlyer ? buildFullFlyerPrompt(payload) : buildFlyerPrompt(payload);
   const layout = {
     collegeName: payload.collegeName || "Pillai College of Engineering",
     clubName: payload.clubName || "Club Name",
@@ -240,117 +287,33 @@ export const generateFlyerConcept = async (payload) => {
   };
 
   try {
-    imageModelsTried = resolveModelCandidates(GEMINI_IMAGE_MODELS, availableModels, {
-      strictWhenAvailable: true,
-    });
-    const generated = await getGeminiImage(prompt, wantsFullFlyer ? "full-flyer" : "background", availableModels);
+    const seed = Number.isFinite(Number(payload.seed)) ? Number(payload.seed) : Math.floor(Math.random() * 10_000_000);
+    const generated = await getPollinationsImage(prompt, seed);
+
     return {
       prompt,
-      provider: wantsFullFlyer ? "gemini-full-flyer" : "gemini-image",
+      provider: wantsFullFlyer ? "pollinations-full-flyer" : "pollinations-image",
       status: "ready",
       layout,
+      message: `Generated with Pollinations (${generated.modelUsed}, seed ${seed}).`,
+      imageBase64: generated.imageBase64,
       fullFlyerContentType: wantsFullFlyer ? generated.contentType : null,
       fullFlyerBase64: wantsFullFlyer ? generated.imageBase64 : null,
-      backgroundContentType: generated.contentType,
-      backgroundBase64: generated.imageBase64,
+      backgroundContentType: wantsFullFlyer ? null : generated.contentType,
+      backgroundBase64: wantsFullFlyer ? null : generated.imageBase64,
     };
   } catch (error) {
-    geminiImageErrorMessage = error instanceof Error ? error.message : "Gemini image generation failed.";
-  }
-
-  if (isQuotaError(geminiImageErrorMessage)) {
     return {
       prompt,
       provider: "prompt-only",
       status: "mocked",
-      message: buildGeminiFailureMessage({
-        wantsFullFlyer,
-        imageError: geminiImageErrorMessage,
-        textError: "",
-        imageModelsTried,
-        availableModels,
-      }),
+      message: error instanceof Error ? `Pollinations image generation failed. ${error.message}` : "Pollinations image generation failed.",
       layout,
+      imageBase64: null,
       fullFlyerBase64: null,
       fullFlyerContentType: null,
       backgroundBase64: null,
       backgroundContentType: null,
     };
   }
-
-  if (!config.geminiApiKey) {
-    return {
-      prompt,
-      provider: "prompt-only",
-      status: "mocked",
-      message: wantsFullFlyer
-        ? "GEMINI_API_KEY is missing. Add it to .env to enable Gemini full flyer generation."
-        : "GEMINI_API_KEY is missing. Add it to .env to enable Gemini flyer background generation.",
-      layout,
-      fullFlyerBase64: null,
-      fullFlyerContentType: null,
-      backgroundBase64: null,
-      backgroundContentType: null,
-    };
-  }
-
-  const client = new GoogleGenerativeAI(config.geminiApiKey);
-  const creativeBriefPrompt = `Turn this into a structured creative brief for an image generation model. Keep it concise and production-ready.\n\n${prompt}`;
-  let creativeBrief = "";
-  const textModelErrors = [];
-  const textModelCandidates = resolveModelCandidates(GEMINI_TEXT_MODELS, availableModels);
-
-  for (const modelName of textModelCandidates) {
-    try {
-      const model = client.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent([{ text: creativeBriefPrompt }]);
-      creativeBrief = result.response.text();
-      if (creativeBrief) {
-        break;
-      }
-      textModelErrors.push(`${modelName}: empty response`);
-    } catch (error) {
-      textModelErrors.push(`${modelName}: ${error instanceof Error ? error.message : "request failed"}`);
-    }
-  }
-
-  if (!creativeBrief) {
-    const textModelError = textModelErrors.join(" | ");
-    return {
-      prompt,
-      provider: "prompt-only",
-      status: "mocked",
-      message: buildGeminiFailureMessage({
-        wantsFullFlyer,
-        imageError: geminiImageErrorMessage,
-        textError: textModelError || "No supported Gemini text model available.",
-        imageModelsTried,
-        availableModels,
-      }),
-      layout,
-      fullFlyerBase64: null,
-      fullFlyerContentType: null,
-      backgroundBase64: null,
-      backgroundContentType: null,
-    };
-  }
-
-  return {
-    prompt,
-    provider: "gemini",
-    status: "mocked",
-    creativeBrief,
-    message: buildGeminiFailureMessage({
-      wantsFullFlyer,
-      imageError: geminiImageErrorMessage || "Using Gemini creative brief fallback.",
-      textError: "",
-      imageModelsTried,
-      availableModels,
-    }),
-    layout,
-    fullFlyerBase64: null,
-    fullFlyerContentType: null,
-    backgroundBase64: null,
-    backgroundContentType: null,
-  };
 };
