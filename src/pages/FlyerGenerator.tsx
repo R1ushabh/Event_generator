@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Download, LoaderCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
+import { api } from "@/lib/api";
 
 const themeOptions = [
   "Technical", 
@@ -180,6 +181,8 @@ const toBulletPoints = (text: string, maxItems = 7) => {
     .slice(0, maxItems);
 };
 
+const toImageDataUrl = (base64: string, mimeType = "image/png") => `data:${mimeType};base64,${base64}`;
+
 const FlyerGenerator = () => {
   const [formData, setFormData] = useState({
     collegeName: PCE_DEFAULT_NAME,
@@ -199,6 +202,7 @@ const FlyerGenerator = () => {
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [composedFlyer, setComposedFlyer] = useState("");
   const [status, setStatus] = useState("");
 
@@ -442,6 +446,54 @@ const FlyerGenerator = () => {
     }
   };
 
+  const generateAiFlyer = async () => {
+    setIsAiGenerating(true);
+    setStatus("");
+    setComposedFlyer("");
+
+    try {
+      const result = await api.generateFlyer({
+        aiMode: "full-flyer",
+        generateFullFlyer: true,
+        collegeName: formData.collegeName || PCE_DEFAULT_NAME,
+        clubName: formData.clubName,
+        theme: formData.theme,
+        style: formData.style,
+        eventTitle: formData.eventTitle,
+        date: formData.date,
+        time: formData.time,
+        venue: formData.venue,
+        details: formData.details,
+        summary: formData.summary,
+        contactNumbers: formData.contactNumbers,
+      });
+
+      if (result.fullFlyerBase64) {
+        setComposedFlyer(toImageDataUrl(result.fullFlyerBase64, result.fullFlyerContentType || "image/png"));
+        setStatus(result.message || "AI flyer generated with Pollinations.");
+        return;
+      }
+
+      if (result.backgroundBase64) {
+        setComposedFlyer(toImageDataUrl(result.backgroundBase64, result.backgroundContentType || "image/png"));
+        setStatus(result.message || "AI flyer generated with Pollinations.");
+        return;
+      }
+
+      if (result.imageBase64) {
+        setComposedFlyer(toImageDataUrl(result.imageBase64, result.backgroundContentType || "image/png"));
+        setStatus(result.message || "AI flyer generated with Pollinations.");
+        return;
+      }
+
+      setStatus(result.message || "Pollinations did not return an image for this request.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to generate AI flyer.");
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen p-6 md:p-10">
       <motion.header className="mb-8 flex items-center justify-between" initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
@@ -452,10 +504,14 @@ const FlyerGenerator = () => {
           </Link>
           <h1 className="text-xl font-bold uppercase tracking-tight">Flyer Generator</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={generateFlyer} className="brutal-btn-primary flex items-center gap-2 py-2" disabled={isGenerating}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={generateFlyer} className="brutal-btn-primary flex items-center gap-2 py-2" disabled={isGenerating || isAiGenerating}>
             {isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Sparkles className="h-4 w-4" strokeWidth={3} />}
             Generate Poster
+          </button>
+          <button onClick={generateAiFlyer} className="brutal-btn-outline flex items-center gap-2 px-4 py-2 text-xs" disabled={isGenerating || isAiGenerating}>
+            {isAiGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Sparkles className="h-4 w-4" strokeWidth={3} />}
+            Generate AI Flyer
           </button>
         </div>
       </motion.header>

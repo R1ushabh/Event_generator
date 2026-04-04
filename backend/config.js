@@ -19,5 +19,12 @@ export const config = {
     process.env.GOOGLE_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
     "",
+  pollinationsApiKey:
+    process.env.POLLINATIONS_API_KEY ||
+    process.env.POLLEN_API_KEY ||
+    "",
+  pollinationsModel:
+    process.env.POLLINATIONS_MODEL ||
+    "flux",
   appName: "DocuPrint",
 };
