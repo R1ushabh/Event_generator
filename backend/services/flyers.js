@@ -190,7 +190,7 @@ const getPollinationsImage = async (prompt, seed) => {
     for (const endpoint of POLLINATIONS_IMAGE_ENDPOINTS) {
       for (let attempt = 1; attempt <= POLLINATIONS_MAX_ATTEMPTS; attempt += 1) {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45_000);
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
 
         try {
           const response = await fetch(buildPollinationsUrl(endpoint.baseUrl, prompt, seed, model), {
@@ -288,7 +288,7 @@ export const generateFlyerConcept = async (payload) => {
   };
 
   try {
-    const seed = Number.isFinite(Number(payload.seed)) ? Number(payload.seed) : Math.floor(Math.random() * 10_000_000);
+    const seed = Number.isFinite(Number(payload.seed)) ? Number(payload.seed) : Math.floor(Math.random() * 10000000);
     const generated = await getPollinationsImage(prompt, seed);
 
     return {

@@ -1,5 +1,10 @@
 declare module "./app.js" {
-  const app: unknown;
+  import type { Express } from "express";
+
+  const app: Express;
+  export default app;
 }
+
+export {};
 
 export {};
