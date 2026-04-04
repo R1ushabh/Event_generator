@@ -118,7 +118,18 @@ export const api = {
       body,
     }),
   generateFlyer: (body: unknown) =>
-    requestJson<{ prompt: string; provider: string; status: string; message?: string; creativeBrief?: string; imageBase64?: string | null }>("/flyers/generate", {
+    requestJson<{
+      prompt: string;
+      provider: string;
+      status: string;
+      message?: string;
+      creativeBrief?: string;
+      imageBase64?: string | null;
+      fullFlyerBase64?: string | null;
+      fullFlyerContentType?: string | null;
+      backgroundBase64?: string | null;
+      backgroundContentType?: string | null;
+    }>("/flyers/generate", {
       method: "POST",
       body,
     }),

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Download, LoaderCircle, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
+import { api } from "@/lib/api";
 
 const themeOptions = [
   "Technical", 
@@ -16,8 +17,29 @@ const themeOptions = [
   "Startup & Innovation",
 ];
 
-const styleOptions = ["Minimal Modern", "Glassmorphism", "Corporate"];
+const styleOptions = [
+  "Minimal Modern",
+  "Glassmorphism",
+  "Corporate",
+  "Retro & Vintage",
+  "Geometric & Abstract",
+  "Futuristic & Technical",
+  "Bold Editorial",
+  "Neon Cyber",
+];
 const PCE_DEFAULT_NAME = "Pillai College of Engineering";
+const PCE_LOGO_PATH = "/logos/college/pce.png";
+
+const clubLogoOptions = [
+  { id: "csi", name: "CSI PCE", logoPath: "/logos/clubs/csi.png" },
+  { id: "gdsc", name: "GDSC", logoPath: "/logos/clubs/gdsc.png" },
+  { id: "icell", name: "I-CELL", logoPath: "/logos/clubs/icell.png" },
+  { id: "ieee", name: "IEEE", logoPath: "/logos/clubs/ieee.png" },
+  { id: "nss", name: "NSS", logoPath: "/logos/clubs/nss.png" },
+  { id: "swe", name: "SWE", logoPath: "/logos/clubs/swe.png" },
+  { id: "tapas", name: "TAPAS", logoPath: "/logos/clubs/tapas.png" },
+  { id: "tpc", name: "TPC", logoPath: "/logos/clubs/tpc.png" },
+];
 
 const themeBackgrounds: Record<string, string[][]> = {
   Technical: [["/theme/technical/01.jpg", "/theme/technical/01.jpeg"], ["/theme/technical/02.jpg", "/theme/technical/02.jpeg"]],
@@ -180,10 +202,13 @@ const toBulletPoints = (text: string, maxItems = 7) => {
     .slice(0, maxItems);
 };
 
+const toImageDataUrl = (base64: string, mimeType = "image/png") => `data:${mimeType};base64,${base64}`;
+
 const FlyerGenerator = () => {
+  const defaultClub = clubLogoOptions[0];
   const [formData, setFormData] = useState({
     collegeName: PCE_DEFAULT_NAME,
-    clubName: "",
+    clubName: defaultClub.name,
     theme: themeOptions[0],
     style: styleOptions[0],
     eventTitle: "",
@@ -193,12 +218,12 @@ const FlyerGenerator = () => {
     details: "",
     contactNumbers: "",
     summary: "",
-    pceLogoDataUrl: "",
-    clubLogoDataUrl: "",
     customBackgroundDataUrl: "",
   });
+  const [selectedClubId, setSelectedClubId] = useState(defaultClub.id);
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isAiGenerating, setIsAiGenerating] = useState(false);
   const [composedFlyer, setComposedFlyer] = useState("");
   const [status, setStatus] = useState("");
 
@@ -206,17 +231,12 @@ const FlyerGenerator = () => {
     setFormData((previous) => ({ ...previous, [field]: value }));
   };
 
-  const setLogo = async (field: "pceLogoDataUrl" | "clubLogoDataUrl", file: File | null) => {
-    if (!file) {
-      update(field, "");
-      return;
-    }
+  const selectedClub = clubLogoOptions.find((club) => club.id === selectedClubId) || defaultClub;
 
-    try {
-      update(field, await fileToDataUrl(file));
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to process logo image.");
-    }
+  const handleClubChange = (clubId: string) => {
+    const nextClub = clubLogoOptions.find((club) => club.id === clubId) || defaultClub;
+    setSelectedClubId(nextClub.id);
+    update("clubName", nextClub.name);
   };
 
   const setCustomBackground = async (file: File | null) => {
@@ -269,9 +289,11 @@ const FlyerGenerator = () => {
   const composeFlyer = async ({
     backgroundSource,
     overlayOpacity = 0.18,
+    renderEventText = true,
   }: {
     backgroundSource?: string | string[] | null;
     overlayOpacity?: number;
+    renderEventText?: boolean;
   }) => {
     const width = 1024;
     const height = 1536;
@@ -324,8 +346,13 @@ const FlyerGenerator = () => {
     const logoSize = 104;
     const headerY = 64;
 
-    await drawLogo(context, formData.pceLogoDataUrl, 58, headerY, logoSize, "PCE");
-    await drawLogo(context, formData.clubLogoDataUrl, width - 58 - logoSize, headerY, logoSize, "CLUB");
+    await drawLogo(context, PCE_LOGO_PATH, 58, headerY, logoSize, "PCE");
+    await drawLogo(context, selectedClub.logoPath, width - 58 - logoSize, headerY, logoSize, "CLUB");
+
+    if (!renderEventText) {
+      setComposedFlyer(canvas.toDataURL("image/png"));
+      return hasImageBackground;
+    }
 
     context.save();
     context.font = "700 42px 'Space Grotesk', sans-serif";
@@ -442,6 +469,73 @@ const FlyerGenerator = () => {
     }
   };
 
+  const generateAiFlyer = async () => {
+    setIsAiGenerating(true);
+    setStatus("");
+    setComposedFlyer("");
+
+    try {
+      const result = await api.generateFlyer({
+        aiMode: "background",
+        collegeName: formData.collegeName || PCE_DEFAULT_NAME,
+        clubName: formData.clubName,
+        collegeLogoPath: PCE_LOGO_PATH,
+        clubLogoPath: selectedClub.logoPath,
+        theme: formData.theme,
+        style: formData.style,
+        eventTitle: formData.eventTitle,
+        date: formData.date,
+        time: formData.time,
+        venue: formData.venue,
+        details: formData.details,
+        summary: formData.summary,
+        contactNumbers: formData.contactNumbers,
+      });
+
+      const aiBackgroundBase64 = result.backgroundBase64 || result.imageBase64 || result.fullFlyerBase64;
+      const aiBackgroundContentType = result.backgroundContentType || result.fullFlyerContentType || "image/png";
+
+      if (aiBackgroundBase64) {
+        await composeFlyer({
+          backgroundSource: toImageDataUrl(aiBackgroundBase64, aiBackgroundContentType),
+          overlayOpacity: 0.26,
+          renderEventText: true,
+        });
+        setStatus(result.message || "AI background generated with Pollinations and details rendered clearly.");
+        return;
+      }
+
+      if (String(result.message || "").toLowerCase().includes("insufficient pollinations balance")) {
+        const selectedThemeBackground = randomThemeBackground(formData.theme);
+        const backgroundSource = formData.customBackgroundDataUrl || selectedThemeBackground;
+        await composeFlyer({ backgroundSource, overlayOpacity: 0.22, renderEventText: true });
+        setStatus("Pollinations balance is low, so a local high-readability poster was generated instead. Top up pollen to re-enable AI background generation.");
+        return;
+      }
+
+      setStatus(result.message || "Pollinations did not return an image for this request.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to generate AI flyer.";
+
+      if (message.toLowerCase().includes("insufficient pollinations balance")) {
+        try {
+          const selectedThemeBackground = randomThemeBackground(formData.theme);
+          const backgroundSource = formData.customBackgroundDataUrl || selectedThemeBackground;
+          await composeFlyer({ backgroundSource, overlayOpacity: 0.22, renderEventText: true });
+          setStatus("Pollinations balance is low, so a local high-readability poster was generated instead. Top up pollen to re-enable AI background generation.");
+          return;
+        } catch {
+          setStatus("Pollinations balance is low and local fallback also failed. Please try Generate Poster.");
+          return;
+        }
+      }
+
+      setStatus(message);
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
   return (
     <div className="min-h-screen p-6 md:p-10">
       <motion.header className="mb-8 flex items-center justify-between" initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
@@ -452,10 +546,14 @@ const FlyerGenerator = () => {
           </Link>
           <h1 className="text-xl font-bold uppercase tracking-tight">Flyer Generator</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={generateFlyer} className="brutal-btn-primary flex items-center gap-2 py-2" disabled={isGenerating}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={generateFlyer} className="brutal-btn-primary flex items-center gap-2 py-2" disabled={isGenerating || isAiGenerating}>
             {isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Sparkles className="h-4 w-4" strokeWidth={3} />}
             Generate Poster
+          </button>
+          <button onClick={generateAiFlyer} className="brutal-btn-outline flex items-center gap-2 px-4 py-2 text-xs" disabled={isGenerating || isAiGenerating}>
+            {isAiGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <Sparkles className="h-4 w-4" strokeWidth={3} />}
+            Generate AI Flyer
           </button>
         </div>
       </motion.header>
@@ -468,21 +566,18 @@ const FlyerGenerator = () => {
               <input className="brutal-input" value={formData.collegeName} onChange={(event) => update("collegeName", event.target.value)} />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">Club Name</label>
-              <input className="brutal-input" value={formData.clubName} onChange={(event) => update("clubName", event.target.value)} />
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">Club</label>
+              <select className="brutal-input" value={selectedClubId} onChange={(event) => handleClubChange(event.target.value)}>
+                {clubLogoOptions.map((club) => (
+                  <option key={club.id} value={club.id}>
+                    {club.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">PCE Logo (Left)</label>
-              <input className="brutal-input" type="file" accept="image/*" onChange={(event) => setLogo("pceLogoDataUrl", event.target.files?.[0] || null)} />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">Club Logo (Right)</label>
-              <input className="brutal-input" type="file" accept="image/*" onChange={(event) => setLogo("clubLogoDataUrl", event.target.files?.[0] || null)} />
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">College logo is fixed to PCE from public/logos/college/pce.png and club logos are selected from public/logos/clubs.</p>
 
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">Custom Background (Optional)</label>
