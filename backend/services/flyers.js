@@ -49,6 +49,11 @@ const styleKeywords = {
   "Minimal Modern": "minimal modern aesthetic, clean white space, balanced composition, subtle gradients",
   Glassmorphism: "glassmorphism layers, translucent panels, soft blur depth, polished contemporary look",
   Corporate: "corporate clean design, disciplined typography space, professional blue-white palette",
+  "Retro & Vintage": "retro poster style, warm vintage tones, subtle paper texture, timeless editorial composition",
+  "Geometric & Abstract": "bold geometric shapes, abstract forms, clean vector-like composition, structured visual rhythm",
+  "Futuristic & Technical": "futuristic technical interface vibe, sleek neon accents, precise digital geometry, high-tech environment",
+  "Bold Editorial": "high-impact editorial layout, strong contrast blocks, modern magazine-inspired art direction",
+  "Neon Cyber": "cyberpunk neon palette, luminous gradients, moody futuristic energy, digital nightlife atmosphere",
 };
 
 const normalizePromptField = (value, maxLength = 220) =>
@@ -60,25 +65,30 @@ const normalizePromptField = (value, maxLength = 220) =>
 export const buildFlyerPrompt = (payload) => {
   const theme = themes.includes(payload.theme) ? payload.theme : themes[0];
   const style = payload.style || "Minimal Modern";
+  const collegeName = normalizePromptField(payload.collegeName || "Pillai College of Engineering", 120);
   const eventTitle = normalizePromptField(payload.eventTitle || "College event");
   const clubName = normalizePromptField(payload.clubName || "Student club", 120);
   const venue = normalizePromptField(payload.venue || "College campus", 120);
-  const details = normalizePromptField(payload.details || "", 320);
-  const summary = normalizePromptField(payload.summary || "", 320);
+  const collegeLogoPath = normalizePromptField(payload.collegeLogoPath || "", 180);
+  const clubLogoPath = normalizePromptField(payload.clubLogoPath || "", 180);
 
   return `
 Vertical event flyer background for a college event poster.
 Theme: ${theme}.
 Style direction: ${style}.
-Event focus: ${eventTitle} by ${clubName} at ${venue}.
+Event focus: ${eventTitle} by ${clubName} at ${venue} in ${collegeName}.
 ${themeKeywords[theme] || ""}.
 ${styleKeywords[style] || ""}.
+Keep a clean header strip and reserve top-left and top-right circular logo safe zones for official college and club logos.
+Brand assets to accommodate in composition: ${collegeLogoPath || "college logo"} and ${clubLogoPath || "club logo"}.
+Keep the center area visually rich but not cluttered so title and details overlay remain highly readable.
 Visual cues to include: programming workshop vibe, laptop setup, coding symbols, collaborative student environment.
-Optional contextual hints: ${details || "hands-on learning and coding practice"}. ${summary || "professional and inviting campus atmosphere"}.
 Bright, high-key lighting with rich visual depth.
 Keep center and top-middle areas readable for headline text overlays.
 Use cinematic composition, premium quality, sharp details, and print-ready composition.
-No text, no letters, no typography, no logos, no watermark, no random characters, no gibberish.
+No text, no letters, no typography, no numbers, no logos, no watermark, no random characters, no gibberish.
+No signs, no posters, no banners, no UI text, no readable code on laptop screens.
+If monitors are present, keep screen content abstract and blurred without any characters.
 `.trim();
 };
 
@@ -91,8 +101,8 @@ const buildFullFlyerPrompt = (payload) => {
   const date = normalizePromptField(payload.date || "Not specified", 80);
   const time = normalizePromptField(payload.time || "Not specified", 80);
   const venue = normalizePromptField(payload.venue || "Not specified", 120);
-  const details = normalizePromptField(payload.details || "Not specified", 500);
-  const summary = normalizePromptField(payload.summary || "Not specified", 420);
+  const details = normalizePromptField(payload.details || "Not specified", 300);
+  const summary = normalizePromptField(payload.summary || "Not specified", 220);
   const contact = normalizePromptField(payload.contactNumbers || "Not specified", 120);
 
   return `
@@ -102,20 +112,23 @@ Style: ${style}.
 ${themeKeywords[theme] || ""}.
 ${styleKeywords[style] || ""}.
 
-The text must be large, sharp, and correctly spelled exactly as follows:
-${collegeName}
-${clubName}
-${eventTitle}
-Date: ${date}
-Time: ${time}
-Venue: ${venue}
-Details: ${details}
-Summary: ${summary}
-Contact: ${contact}
+Required layout order:
+1) Top-center: ${collegeName}
+2) Immediately below: ${clubName}
+3) Main headline in very large font (once only): ${eventTitle}
+4) Mid section heading: Event Details
+5) Mid section body text:
+${details}
+${summary}
+6) Near bottom line: Date & Time: ${date} ${time} | Venue: ${venue}
+7) Bottom line: Contact: ${contact}
 
 Design requirements:
 - High contrast typography on clean background
 - Strong visual hierarchy and ample spacing
+- Use only the exact event text above; do not invent, repeat, or paraphrase major headings
+- Do not repeat the title multiple times
+- No logos, no emblems, no badges, no watermarks
 - No gibberish, no random symbols, no mirrored text
 - Print-ready poster quality
 `.trim();
