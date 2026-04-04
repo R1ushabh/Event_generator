@@ -76,11 +76,33 @@ async function requestJson<T>(
 }
 
 export const api = {
-  health: () => requestJson<{ ok: boolean; service: string; date: string }>("/health"),
+  health: () =>
+    requestJson<{
+      ok: boolean;
+      service: string;
+      date: string;
+      groqConfigured?: boolean;
+      groqModel?: string | null;
+      geminiConfigured?: boolean;
+      openaiConfigured?: boolean;
+      apiVersion?: string;
+    }>("/health"),
   getBudgetStore: () => requestJson<{ categories: string[]; records: Array<Record<string, unknown>> }>("/budget/store"),
   saveBudgetStore: (body: unknown) => requestJson<{ categories: string[]; records: Array<Record<string, unknown>> }>("/budget/store", { method: "PUT", body }),
   generateProposal: (body: unknown) =>
-    requestJson<{ fileName: string; pdfBase64: string; summary: Record<string, unknown>; narrative: string[] }>("/documents/proposal", {
+    requestJson<{
+      fileName: string;
+      pdfBase64: string;
+      summary: {
+        eventTitle?: string;
+        clubName?: string;
+        authorityName?: string;
+        estimatedBudget?: string | null;
+        narrativeSource?: string;
+        highlightsSource?: string;
+      };
+      narrative: string[];
+    }>("/documents/proposal", {
       method: "POST",
       body,
     }),

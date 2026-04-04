@@ -25,6 +25,7 @@ interface ProposalData {
   budget: string;
   objective: string;
   eventSummary: string;
+  benefits: string;
   keyPoints: string;
 }
 
@@ -42,7 +43,15 @@ const initialState: ProposalData = {
   budget: "",
   objective: "",
   eventSummary: "",
+  benefits: "",
   keyPoints: "",
+};
+
+const PROPOSAL_DRAFT_STORAGE_KEY = "docuprint.proposal.draft";
+
+type ProposalDraft = {
+  data: ProposalData;
+  signatories: Signatory[];
 };
 
 const LogoBadge = ({
@@ -128,14 +137,58 @@ const createSignatory = (): Signatory => ({
   designation: "",
 });
 
+const loadProposalDraft = (): ProposalDraft | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(PROPOSAL_DRAFT_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<ProposalDraft>;
+    return {
+      data: {
+        ...initialState,
+        ...(parsed.data || {}),
+      },
+      signatories:
+        Array.isArray(parsed.signatories) && parsed.signatories.length > 0
+          ? parsed.signatories.map((signatory) => ({
+              id: String(signatory.id || createSignatory().id),
+              name: String(signatory.name || ""),
+              designation: String(signatory.designation || ""),
+            }))
+          : [createSignatory()],
+    };
+  } catch {
+    return null;
+  }
+};
+
+const clearProposalDraft = () => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(PROPOSAL_DRAFT_STORAGE_KEY);
+};
+
 const ProposalGenerator = () => {
-  const [data, setData] = useState<ProposalData>(initialState);
-  const [signatories, setSignatories] = useState<Signatory[]>([createSignatory()]);
+  const [data, setData] = useState<ProposalData>(() => loadProposalDraft()?.data || initialState);
+  const [signatories, setSignatories] = useState<Signatory[]>(() => loadProposalDraft()?.signatories || [createSignatory()]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedFile, setGeneratedFile] = useState<{ fileName: string; pdfBase64: string; narrative: string[] } | null>(null);
   const [pdfUrl, setPdfUrl] = useState("");
   const [status, setStatus] = useState("");
   const [clubMenuOpen, setClubMenuOpen] = useState(false);
+  const [healthStatus, setHealthStatus] = useState<{
+    groqConfigured?: boolean;
+    groqModel?: string | null;
+    geminiConfigured?: boolean;
+  } | null>(null);
 
   const selectedClub = useMemo(() => getClubById(data.clubId), [data.clubId]);
 
@@ -146,6 +199,33 @@ const ProposalGenerator = () => {
       }
     };
   }, [pdfUrl]);
+
+  useEffect(() => {
+    api
+      .health()
+      .then((health) => {
+        setHealthStatus({
+          groqConfigured: health.groqConfigured,
+          groqModel: health.groqModel,
+          geminiConfigured: health.geminiConfigured,
+        });
+      })
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      PROPOSAL_DRAFT_STORAGE_KEY,
+      JSON.stringify({
+        data,
+        signatories,
+      })
+    );
+  }, [data, signatories]);
 
   const update = (field: keyof ProposalData, value: string) => {
     setData((previous) => ({ ...previous, [field]: value }));
@@ -163,6 +243,12 @@ const ProposalGenerator = () => {
 
   const removeSignatory = (id: string) => {
     setSignatories((previous) => (previous.length === 1 ? previous : previous.filter((item) => item.id !== id)));
+  };
+
+  const resetProposalForm = () => {
+    setData(initialState);
+    setSignatories([createSignatory()]);
+    clearProposalDraft();
   };
 
   const generateProposal = async () => {
@@ -197,7 +283,10 @@ const ProposalGenerator = () => {
       const nextPdfUrl = base64PdfToObjectUrl(response.pdfBase64);
       setPdfUrl(nextPdfUrl);
       setGeneratedFile(response);
-      setStatus("Proposal PDF generated successfully. You can preview and download it below.");
+      resetProposalForm();
+      setStatus(
+        `Proposal PDF generated successfully using ${response.summary?.narrativeSource || "the configured backend provider"}. You can preview and download it below.`
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to generate proposal.";
       setStatus(
@@ -229,9 +318,15 @@ const ProposalGenerator = () => {
           <div>
             <h1 className="text-xl font-bold uppercase tracking-tight">Proposal Generator</h1>
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">AI-generated narrative with formatted PDF output</p>
+            <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              Backend AI: {healthStatus?.groqConfigured ? `Groq (${healthStatus.groqModel || "configured"})` : healthStatus?.geminiConfigured ? "Gemini" : "Template fallback"}
+            </p>
           </div>
         </div>
         <div className="flex gap-3">
+          <button onClick={resetProposalForm} className="brutal-btn-outline flex items-center gap-2 py-2">
+            Clear Form
+          </button>
           <button onClick={generateProposal} className="brutal-btn-primary flex items-center gap-2 py-2" disabled={isGenerating}>
             {isGenerating ? <LoaderCircle className="h-4 w-4 animate-spin" strokeWidth={2.5} /> : <FileText className="h-4 w-4" strokeWidth={3} />}
             Generate PDF
@@ -348,6 +443,11 @@ const ProposalGenerator = () => {
           </div>
 
           <div>
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">How It Benefits</label>
+            <textarea className="brutal-input min-h-[110px] resize-y" placeholder="Explain how the event benefits students, the club, or the college." value={data.benefits} onChange={(event) => update("benefits", event.target.value)} />
+          </div>
+
+          <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">Key Points</label>
             <textarea className="brutal-input min-h-[100px] resize-y" placeholder={"One point per line\nExpected outcomes\nRequired approvals"} value={data.keyPoints} onChange={(event) => update("keyPoints", event.target.value)} />
           </div>
@@ -412,7 +512,7 @@ const ProposalGenerator = () => {
                   {generatedFile?.narrative?.length ? (
                     generatedFile.narrative.map((paragraph) => <p key={paragraph}>{paragraph}</p>)
                   ) : (
-                    <p>Generate the proposal to see AI-written paragraph content based on your objective, event summary, and key points.</p>
+                    <p>Generate the proposal to see AI-written paragraph content based on your objective, event summary, benefits, and key points.</p>
                   )}
                 </div>
               </div>

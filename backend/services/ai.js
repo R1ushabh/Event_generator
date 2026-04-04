@@ -2,6 +2,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { config } from "../config.js";
 import { clampText } from "../utils.js";
 
+const GROQ_CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions";
+
 const formatInr = (value) =>
   `Rs. ${Number(value || 0).toLocaleString("en-IN", {
     maximumFractionDigits: 0,
@@ -82,12 +84,27 @@ const resolveEventProfile = (eventType = "") => {
 };
 
 const createProposalPrompt = (payload) => `
-You are writing a formal college event proposal body.
+You are writing a formal college event proposal for administrative approval.
 
-Write 4 detailed professional paragraphs for an event proposal.
-Keep the tone formal, administrative, and suitable for submission to college authorities.
-Do not include headings, bullet points, signatures, salutations, or placeholders.
-Use only the information provided below and expand it into polished proposal language.
+Write:
+1. Exactly 4 detailed, professional proposal paragraphs.
+2. Exactly 4 expanded highlight lines for the proposal's highlights section.
+
+Requirements:
+- Keep the tone formal, polished, approval-oriented, and suitable for submission to college authorities.
+- Expand the objective, event summary, benefits, and key points into strong institutional language.
+- Make the highlights concise but meaningful, not copied raw from the user input.
+- Do not include headings, bullet symbols, salutations, signatures, placeholders, or markdown.
+- Do not invent facts outside the provided inputs.
+- The four paragraphs should follow this structure:
+  1. Event introduction, organizing body, audience, and approval context.
+  2. Clear objective, need for the event, and what will be conducted.
+  3. Participant benefits, expected outcomes, key highlights, logistics, and execution discipline.
+  4. Institutional value, request for approval, and assurance of responsible implementation.
+- The highlights should sound like proposal-ready value statements, not raw notes.
+
+Return valid JSON only in this exact shape:
+{"paragraphs":["paragraph 1","paragraph 2","paragraph 3","paragraph 4"],"highlights":["highlight 1","highlight 2","highlight 3","highlight 4"]}
 
 College: ${payload.collegeName || "Pillai College of Engineering"}
 Club: ${payload.clubName || "Student Club"}
@@ -100,13 +117,43 @@ Target audience: ${payload.targetAudience || "Students and faculty"}
 Budget: ${payload.budget || "To be finalized"}
 Objective: ${clampText(payload.objective || "", 700)}
 Event summary: ${clampText(payload.eventSummary || "", 1200)}
+Benefits: ${clampText(payload.benefits || "", 900)}
 Key points: ${(payload.keyPoints || []).join(", ")}
+`.trim();
+
+const createProposalRepairPrompt = (payload, priorText) => `
+The previous proposal draft was too generic or too weak.
+
+Rewrite it into a stronger, more meaningful college proposal using the original event inputs.
+The response must be richer, more specific to the event, and more useful for administrative approval.
+Do not copy raw user phrases unless necessary. Expand them into proper proposal language.
+
+Return valid JSON only in this exact shape:
+{"paragraphs":["paragraph 1","paragraph 2","paragraph 3","paragraph 4"],"highlights":["highlight 1","highlight 2","highlight 3","highlight 4"]}
+
+Original event details:
+College: ${payload.collegeName || "Pillai College of Engineering"}
+Club: ${payload.clubName || "Student Club"}
+Event title: ${payload.eventTitle || "Event"}
+Event date: ${payload.eventDate || "To be announced"}
+Venue: ${payload.venue || "College campus"}
+Addressed to: ${payload.authorityName || "Respective authority"}
+Subject: ${payload.subject || "Event proposal"}
+Target audience: ${payload.targetAudience || "Students and faculty"}
+Budget: ${payload.budget || "To be finalized"}
+Objective: ${clampText(payload.objective || "", 700)}
+Event summary: ${clampText(payload.eventSummary || "", 1200)}
+Benefits: ${clampText(payload.benefits || "", 900)}
+Key points: ${(payload.keyPoints || []).join(", ")}
+
+Weak previous draft:
+${clampText(priorText || "", 4000)}
 `.trim();
 
 const fallbackProposalParagraphs = (payload) => [
   `This proposal is submitted on behalf of ${payload.clubName} for organizing the event "${payload.eventTitle}" at ${payload.venue || "the college venue"} on ${payload.eventDate || "the proposed date"}. The event is intended for ${payload.targetAudience || "students and faculty members"} and has been planned to create a structured and meaningful learning experience within the college environment.`,
   `The primary objective of the event is to ${payload.objective || "create a valuable academic and co-curricular experience for participants"}. Based on the details provided, the event will include ${payload.eventSummary || "well-coordinated activities, guided participation, and institution-aligned execution"} so that the intended outcomes are achieved in a professional and engaging manner.`,
-  `The estimated budget for the event is ${payload.budget ? `Rs. ${Number(payload.budget).toLocaleString("en-IN")}` : "to be finalized"}. Administrative approval is requested for venue allocation, scheduling support, permissions, and any related logistics required for smooth execution. The organizing team will ensure that the event is conducted with discipline, proper coordination, and institutional compliance.`,
+  `${payload.benefits ? `The event is expected to benefit participants by ${payload.benefits}. ` : ""}The estimated budget for the event is ${payload.budget ? `Rs. ${Number(payload.budget).toLocaleString("en-IN")}` : "to be finalized"}. Administrative approval is requested for venue allocation, scheduling support, permissions, and any related logistics required for smooth execution. The organizing team will ensure that the event is conducted with discipline, proper coordination, and institutional compliance.`,
   `Through this event, ${payload.clubName} aims to contribute positively to student development and campus engagement. We therefore request approval to proceed with the proposed plan and assure that all arrangements, reporting, and post-event documentation will be carried out responsibly under faculty guidance.`,
 ];
 
@@ -294,39 +341,230 @@ export const generateReportNarrative = async (payload) => {
   }
 };
 
-export const generateProposalNarrative = async (payload) => {
-  if (!config.geminiApiKey) {
-    return {
-      paragraphs: fallbackProposalParagraphs(payload),
-      prompt: createProposalPrompt(payload),
-      source: "template",
-    };
+const fallbackProposalHighlights = (payload) => {
+  const expandedInputHighlights = safeHighlightArray(payload.keyPoints).map((point) => {
+    if (/approval|permission/i.test(point)) {
+      return `Administrative approval is requested to complete the required institutional permissions and execution support for the event.`;
+    }
+
+    if (/outcome|benefit|impact/i.test(point)) {
+      return `The proposal is designed to generate clear academic, professional, and co-curricular value for the intended participants.`;
+    }
+
+    return point.endsWith(".")
+      ? point
+      : `${point.charAt(0).toUpperCase()}${point.slice(1)} will be handled as a structured part of the proposed event plan.`;
+  });
+
+  const fallback = [
+    `The event has been structured to align with the club's objectives and the college's academic and co-curricular priorities.`,
+    payload.benefits
+      ? `Participants are expected to benefit through ${clampText(payload.benefits, 220)}.`
+      : `Participants are expected to gain meaningful academic, professional, and collaborative exposure through the event.`,
+    `The organizing team will manage planning, coordination, and documentation under proper faculty guidance and institutional discipline.`,
+    `Approval is requested for venue allocation, scheduling support, and the administrative arrangements needed for smooth execution.`,
+  ];
+
+  return [...expandedInputHighlights, ...fallback].slice(0, 4);
+};
+
+const safeHighlightArray = (value) =>
+  (Array.isArray(value) ? value : [])
+    .map((item) => String(item || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+const normalizeParagraphs = (paragraphs, payload) => {
+  const cleanedParagraphs = (Array.isArray(paragraphs) ? paragraphs : [])
+    .map((paragraph) => String(paragraph || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  return cleanedParagraphs.length === 4 ? cleanedParagraphs : fallbackProposalParagraphs(payload);
+};
+
+const normalizeHighlights = (highlights, payload) => {
+  const cleanedHighlights = safeHighlightArray(highlights).slice(0, 4);
+  return cleanedHighlights.length === 4 ? cleanedHighlights : fallbackProposalHighlights(payload);
+};
+
+const extractJsonObject = (text = "") => {
+  const startIndex = text.indexOf("{");
+  const endIndex = text.lastIndexOf("}");
+  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+    return null;
+  }
+
+  return text.slice(startIndex, endIndex + 1);
+};
+
+const parseProposalContent = (text, payload) => {
+  const jsonBlock = extractJsonObject(text);
+  if (jsonBlock) {
+    try {
+      const parsed = JSON.parse(jsonBlock);
+      return {
+        paragraphs: normalizeParagraphs(parsed.paragraphs, payload),
+        highlights: normalizeHighlights(parsed.highlights, payload),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const plainTextParagraphs = String(text || "")
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  return plainTextParagraphs.length === 4
+    ? {
+        paragraphs: plainTextParagraphs,
+        highlights: fallbackProposalHighlights(payload),
+      }
+    : null;
+};
+
+const soundsLikeMeaningfulProposal = (content, payload) => {
+  if (!content?.paragraphs || !content?.highlights) {
+    return false;
+  }
+
+  const joinedParagraphs = content.paragraphs.join(" ");
+  const joinedHighlights = content.highlights.join(" ");
+  const normalizedKeyPoints = safeHighlightArray(payload.keyPoints).map((item) => item.toLowerCase());
+  const paragraphLength = joinedParagraphs.replace(/\s+/g, " ").trim().length;
+  const highlightLength = joinedHighlights.replace(/\s+/g, " ").trim().length;
+  const mentionsEventTitle = payload.eventTitle
+    ? joinedParagraphs.toLowerCase().includes(String(payload.eventTitle).toLowerCase())
+    : true;
+  const mentionsObjective = payload.objective
+    ? joinedParagraphs.toLowerCase().includes(String(payload.objective).split(" ").slice(0, 2).join(" ").toLowerCase()) ||
+      /objective|aim|purpose/.test(joinedParagraphs.toLowerCase())
+    : true;
+  const rawHighlightMatches = normalizedKeyPoints.filter((item) => joinedHighlights.toLowerCase().includes(item)).length;
+
+  return (
+    content.paragraphs.length === 4 &&
+    content.highlights.length === 4 &&
+    paragraphLength >= 950 &&
+    highlightLength >= 220 &&
+    mentionsEventTitle &&
+    mentionsObjective &&
+    rawHighlightMatches < Math.max(normalizedKeyPoints.length, 1)
+  );
+};
+
+const generateTextWithGroq = async (prompt) => {
+  if (!config.groqApiKey) {
+    return null;
   }
 
   try {
-    const client = new GoogleGenerativeAI(config.geminiApiKey);
-    const model = client.getGenerativeModel({ model: "gemini-1.5-pro" });
-    const prompt = createProposalPrompt(payload);
-    const result = await model.generateContent([{ text: prompt }]);
-    const text = result.response.text().trim();
-    const paragraphs = text
-      .split(/\n\s*\n/)
-      .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
-      .filter(Boolean)
-      .slice(0, 4);
+    const response = await fetch(GROQ_CHAT_COMPLETIONS_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.groqModel,
+        temperature: 0.4,
+        max_completion_tokens: 1400,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You write polished, formal, college-administration-ready proposal content. Follow formatting instructions exactly.",
+          },
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
 
-    return {
-      paragraphs: paragraphs.length > 0 ? paragraphs : fallbackProposalParagraphs(payload),
-      prompt,
-      source: "gemini",
-    };
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = await response.json();
+    return payload?.choices?.[0]?.message?.content?.trim() || null;
   } catch {
+    return null;
+  }
+};
+
+export const generateProposalNarrative = async (payload) => {
+  const prompt = createProposalPrompt(payload);
+  const groqText = await generateTextWithGroq(prompt);
+  const groqContent = groqText ? parseProposalContent(groqText, payload) : null;
+  if (groqContent && soundsLikeMeaningfulProposal(groqContent, payload)) {
     return {
-      paragraphs: fallbackProposalParagraphs(payload),
-      prompt: createProposalPrompt(payload),
-      source: "template",
+      paragraphs: groqContent.paragraphs,
+      highlights: groqContent.highlights,
+      prompt,
+      source: `groq:${config.groqModel}`,
     };
   }
+
+  if (groqText) {
+    const repairedGroqText = await generateTextWithGroq(createProposalRepairPrompt(payload, groqText));
+    const repairedGroqContent = repairedGroqText ? parseProposalContent(repairedGroqText, payload) : null;
+    if (repairedGroqContent && soundsLikeMeaningfulProposal(repairedGroqContent, payload)) {
+      return {
+        paragraphs: repairedGroqContent.paragraphs,
+        highlights: repairedGroqContent.highlights,
+        prompt,
+        source: `groq:${config.groqModel}:repaired`,
+      };
+    }
+  }
+
+  try {
+    if (config.geminiApiKey) {
+      const client = new GoogleGenerativeAI(config.geminiApiKey);
+      const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const result = await model.generateContent([{ text: prompt }]);
+      const text = result.response.text().trim();
+      const content = parseProposalContent(text, payload);
+
+      if (content && soundsLikeMeaningfulProposal(content, payload)) {
+        return {
+          paragraphs: content.paragraphs,
+          highlights: content.highlights,
+          prompt,
+          source: "gemini:gemini-1.5-flash",
+        };
+      }
+
+      if (text) {
+        const retryPrompt = createProposalRepairPrompt(payload, text);
+        const retryResult = await model.generateContent([{ text: retryPrompt }]);
+        const retryText = retryResult.response.text().trim();
+        const retryContent = parseProposalContent(retryText, payload);
+
+        if (retryContent && soundsLikeMeaningfulProposal(retryContent, payload)) {
+          return {
+            paragraphs: retryContent.paragraphs,
+            highlights: retryContent.highlights,
+            prompt,
+            source: "gemini:gemini-1.5-flash:repaired",
+          };
+        }
+      }
+    }
+  } catch {
+    // Fall through to the local template below.
+  }
+
+  return {
+    paragraphs: fallbackProposalParagraphs(payload),
+    highlights: fallbackProposalHighlights(payload),
+    prompt,
+    source: "template",
+  };
 };
 
 const generateTextWithGemini = async (prompt) => {
@@ -342,6 +580,26 @@ const generateTextWithGemini = async (prompt) => {
   } catch {
     return null;
   }
+};
+
+const generateTextWithLlm = async (prompt) => {
+  const groqText = await generateTextWithGroq(prompt);
+  if (groqText) {
+    return {
+      text: groqText,
+      source: `groq:${config.groqModel}`,
+    };
+  }
+
+  const geminiText = await generateTextWithGemini(prompt);
+  if (geminiText) {
+    return {
+      text: geminiText,
+      source: "gemini:gemini-1.5-flash",
+    };
+  }
+
+  return null;
 };
 
 export const generateBudgetAnalysisNarrative = async (payload) => {
@@ -398,8 +656,8 @@ If there is uploaded csv content, use it too:
 ${clampText(payload.csvSummary || "No CSV uploaded.", 2000)}
 `.trim();
 
-  const text = await generateTextWithGemini(prompt);
-  if (!text) {
+  const llmResponse = await generateTextWithLlm(prompt);
+  if (!llmResponse?.text) {
     const summaryParts = [
       `${payload.title || "This folder"} in the ${payload.category || "general"} category has recorded ${formatInr(actualSpend)} against an expected allocation of ${formatInr(expectedBudget)}.`,
       largestExpense ? `The largest single expense is ${largestExpense.label} at ${formatInr(largestExpense.amount)}.` : null,
@@ -428,9 +686,10 @@ ${clampText(payload.csvSummary || "No CSV uploaded.", 2000)}
     };
   }
 
+  const text = llmResponse.text;
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   return {
-    source: "gemini",
+    source: llmResponse.source,
     summary: lines[0] || text,
     insights: lines.slice(1, 5),
     recommendation: lines.slice(5).join(" ") || lines[lines.length - 1] || text,
@@ -459,8 +718,8 @@ Return:
 Keep it plain text.
 `.trim();
 
-  const text = await generateTextWithGemini(prompt);
-  if (!text) {
+  const llmResponse = await generateTextWithLlm(prompt);
+  if (!llmResponse?.text) {
     const relatedHistory = (payload.history || []).filter((record) =>
       String(record.category || "")
         .toLowerCase()
@@ -487,11 +746,12 @@ Keep it plain text.
     };
   }
 
+  const text = llmResponse.text;
   const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
   const estimateMatch = text.match(/(\d[\d,]*)/);
   const estimatedTotal = estimateMatch ? Number(estimateMatch[1].replace(/,/g, "")) : 100000;
   return {
-    source: "gemini",
+    source: llmResponse.source,
     summary: lines[0] || text,
     estimatedTotal,
     breakdown: {

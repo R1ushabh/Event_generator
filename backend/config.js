@@ -8,13 +8,14 @@ const toNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const cleanString = (value) => String(value || "").trim();
+
 export const config = {
   port: toNumber(process.env.PORT, 8787),
-  openaiApiKey:
-    process.env.OPENAI_API_KEY ||
-    process.env.OPENAI_API_KEY_FLYERS ||
-    "",
-  geminiApiKey:
+  openaiApiKey: cleanString(process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_FLYERS || ""),
+  groqApiKey: cleanString(process.env.GROQ_API_KEY || ""),
+  groqModel: cleanString(process.env.GROQ_MODEL || "llama-3.3-70b-versatile"),
+  geminiApiKey: cleanString(
     process.env.GEMINI_API_KEY ||
     process.env.GOOGLE_API_KEY ||
     process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
