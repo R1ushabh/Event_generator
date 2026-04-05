@@ -88,7 +88,7 @@ PORT=8787                                          # Backend port (default: 8787
 
 ---
 
-## 🛠️ Quick Start & Troubleshooting (For Team Members)
+## 🛠️ Quick Start & Troubleshooting
 
 If you are having trouble opening or running the project, please follow these step-by-step instructions:
 
