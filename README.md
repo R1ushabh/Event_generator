@@ -212,7 +212,7 @@ YouTube link here
 - Yashika Singh – Frontend, Authentication Development and Budget Feature
 - Aryan Yadav – Budget Preparation Feature
 - Yedhukrishna Vijayan –  Team member, Project details page and Events Integration Feature
-- Vijayraghavan Udaiyar – Deployment of Project 
+- Vijayraghavan Udaiyar – Feedback System and Deployment of Project 
 ---
 
 ## 📚 References
