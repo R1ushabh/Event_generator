@@ -291,14 +291,20 @@ const FlyerGenerator = () => {
     backgroundSource,
     overlayOpacity = 0.18,
     renderEventText = true,
+    enforceTemplateReadability = false,
   }: {
     backgroundSource?: string | string[] | null;
     overlayOpacity?: number;
     renderEventText?: boolean;
+    enforceTemplateReadability?: boolean;
   }) => {
     const width = 1024;
     const height = 1536;
     const centerX = width / 2;
+    const detailsCardX = 78;
+    const detailsCardY = 560;
+    const detailsCardWidth = width - 156;
+    const detailsCardHeight = 700;
 
     const collegeName = formData.collegeName || PCE_DEFAULT_NAME;
     const clubName = formData.clubName || "Club Name";
@@ -341,6 +347,31 @@ const FlyerGenerator = () => {
       context.fillRect(0, 0, width, height);
     }
 
+    if (enforceTemplateReadability) {
+      const topBand = context.createLinearGradient(0, 0, 0, 330);
+      topBand.addColorStop(0, "rgba(255, 255, 255, 0.56)");
+      topBand.addColorStop(1, "rgba(255, 255, 255, 0.04)");
+      context.fillStyle = topBand;
+      context.fillRect(0, 0, width, 330);
+
+      const centerSafe = context.createLinearGradient(0, 0, width * 0.72, 0);
+      centerSafe.addColorStop(0, "rgba(255, 255, 255, 0.42)");
+      centerSafe.addColorStop(0.75, "rgba(255, 255, 255, 0.14)");
+      centerSafe.addColorStop(1, "rgba(255, 255, 255, 0)");
+      context.fillStyle = centerSafe;
+      context.fillRect(0, 260, width * 0.76, 920);
+
+      context.save();
+      context.fillStyle = "rgba(255, 255, 255, 0.22)";
+      drawRoundedRect(context, detailsCardX - 12, detailsCardY - 12, detailsCardWidth + 24, detailsCardHeight + 24, 32);
+      context.fill();
+      context.restore();
+
+      context.fillStyle = "rgba(255, 255, 255, 0.34)";
+      drawRoundedRect(context, 52, height - 142, width - 104, 92, 24);
+      context.fill();
+    }
+
     context.textAlign = "center";
     context.textBaseline = "alphabetic";
 
@@ -372,11 +403,6 @@ const FlyerGenerator = () => {
     setShinyTextStyle(context, 250, 540, 0.82, 22, 7);
     drawWrappedCenteredText(context, title, centerX, 332, width - 180, 90, 3);
     context.restore();
-
-    const detailsCardX = 78;
-    const detailsCardY = 560;
-    const detailsCardWidth = width - 156;
-    const detailsCardHeight = 700;
 
     context.save();
     context.shadowColor = "rgba(40, 70, 120, 0.16)";
@@ -502,18 +528,16 @@ const FlyerGenerator = () => {
       if (aiBackgroundBase64) {
         await composeFlyer({
           backgroundSource: toImageDataUrl(aiBackgroundBase64, aiBackgroundContentType),
-          overlayOpacity: 0.12,
-          renderEventText: true,
+          overlayOpacity: 0,
+          renderEventText: false,
+          enforceTemplateReadability: false,
         });
-        setStatus(result.message || "AI flyer background generated with Gemini and Pollinations; official details and logos overlaid for clarity.");
+        setStatus(result.message || "AI full flyer generated with Pollinations and logos overlaid.");
         return;
       }
 
       if (String(result.message || "").toLowerCase().includes("insufficient pollinations balance")) {
-        const selectedThemeBackground = randomThemeBackground(formData.theme);
-        const backgroundSource = formData.customBackgroundDataUrl || selectedThemeBackground;
-        await composeFlyer({ backgroundSource, overlayOpacity: 0.22, renderEventText: true });
-        setStatus("Pollinations balance is low, so a local high-readability poster was generated instead. Top up pollen to re-enable AI background generation.");
+        setStatus("Pollinations balance is low, so the AI full-flyer could not be generated. Top up pollen and try Generate AI Flyer again.");
         return;
       }
 
@@ -522,16 +546,8 @@ const FlyerGenerator = () => {
       const message = error instanceof Error ? error.message : "Failed to generate AI flyer.";
 
       if (message.toLowerCase().includes("insufficient pollinations balance")) {
-        try {
-          const selectedThemeBackground = randomThemeBackground(formData.theme);
-          const backgroundSource = formData.customBackgroundDataUrl || selectedThemeBackground;
-          await composeFlyer({ backgroundSource, overlayOpacity: 0.22, renderEventText: true });
-          setStatus("Pollinations balance is low, so a local high-readability poster was generated instead. Top up pollen to re-enable AI background generation.");
-          return;
-        } catch {
-          setStatus("Pollinations balance is low and local fallback also failed. Please try Generate Poster.");
-          return;
-        }
+        setStatus("Pollinations balance is low, so the AI full-flyer could not be generated. Top up pollen and try Generate AI Flyer again.");
+        return;
       }
 
       setStatus(message);
@@ -580,8 +596,6 @@ const FlyerGenerator = () => {
               </select>
             </div>
           </div>
-
-          <p className="text-xs text-muted-foreground">College logo is fixed to PCE from public/logos/college/pce.png and club logos are selected from public/logos/clubs.</p>
 
           <div>
             <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider">Custom Background (Optional)</label>

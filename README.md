@@ -122,6 +122,7 @@ If you are having trouble opening or running the project, please follow these st
    ```env
    GEMINI_API_KEY=your_key
    POLLINATIONS_API_KEY=your_key
+   POLLINATIONS_MODEL=flux
    # Add any other required API keys here
    ```
 
